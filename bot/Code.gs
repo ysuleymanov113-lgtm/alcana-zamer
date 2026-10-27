@@ -161,12 +161,69 @@ function doPost(e) {
     const cache = CacheService.getScriptCache();
     if (cache.get('u' + u.update_id)) return ok_();
     cache.put('u' + u.update_id, '1', 21600);
+    ack_(u.update_id);
     if (u.callback_query) onCallback_(u.callback_query);
     else if (u.message) onMessage_(u.message);
   } catch (err) { console.error(err && err.stack || err); }
   return ok_();
 }
 function ok_() { return ContentService.createTextOutput('ok'); }
+
+/**
+ * Google отвечает Telegram кодом 302 вместо 200, и Telegram считает сообщение
+ * недоставленным: шлёт его снова и снова, а новые сообщения ждут в очереди.
+ * Поэтому подтверждаем каждое сообщение сами: снимаем вебхук, отмечаем
+ * сообщение прочитанным и сразу ставим вебхук обратно. Новые сообщения не теряются.
+ */
+function ack_(id) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return;
+  try {
+    tg_('deleteWebhook', {});
+    tg_('getUpdates', { offset: id + 1, limit: 1, timeout: 0 });
+  } finally {
+    hook_();
+    lock.releaseLock();
+  }
+}
+function hook_() {
+  for (let i = 0; i < 3; i++) {
+    const r = tg_('setWebhook', { url: webUrl_(), allowed_updates: ['message', 'callback_query'] });
+    if (r && r.ok) return true;
+    Utilities.sleep(1000 + i * 1500);
+  }
+  return false;
+}
+
+/** Страховка (раз в час и вручную): если очередь застряла, разбирает её и включает вебхук. */
+function rescueQueue_() {
+  const info = tg_('getWebhookInfo', {});
+  const r = info && info.result || {};
+  if (r.url && !(r.pending_update_count > 0 && r.last_error_date && Date.now() / 1000 - r.last_error_date < 3600)) return;
+  rescueBot();
+}
+/** Запусти вручную, если бот молчит: обработает застрявшие сообщения и снова подключит Telegram. */
+function rescueBot() {
+  try {
+    tg_('deleteWebhook', {});
+    const list = (tg_('getUpdates', { timeout: 0, limit: 50 }).result) || [];
+    const cache = CacheService.getScriptCache();
+    let last = 0;
+    list.forEach(u => {
+      last = u.update_id;
+      if (cache.get('u' + u.update_id)) return;
+      cache.put('u' + u.update_id, '1', 21600);
+      try {
+        if (u.callback_query) onCallback_(u.callback_query);
+        else if (u.message) onMessage_(u.message);
+      } catch (e) { console.error(e && e.stack || e); }
+    });
+    if (last) tg_('getUpdates', { offset: last + 1, limit: 1, timeout: 0 });
+    Logger.log('Разобрано сообщений: ' + list.length);
+  } finally {
+    Logger.log('Вебхук: ' + (hook_() ? 'включён' : 'ошибка, запусти setWebhook'));
+  }
+}
 
 function doGet(e) {
   const t = e && e.parameter && e.parameter.t;
@@ -999,6 +1056,7 @@ function dailySummary() { team_().forEach(x => send_(x.id, summaryText_(x.role))
 
 /** Каждый час: напомнить о дедлайнах, до которых осталось меньше 3 часов. */
 function remindSoon() {
+  try { rescueQueue_(); } catch (e) { console.error(e); }
   const now = Date.now(), p = P_();
   active_().forEach(o => {
     if (!o.deadline || o.deadline.length < 16) return;
