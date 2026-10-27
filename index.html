@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Замер ALCANA</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Roboto:wght@400;500;700&display=swap">
+<style>
+/* Measurer mini app: ALCANA green chrome, full-screen camera with level + facade hints, tap-to-mark area, proportional sizing */
+:root{
+  --brand:#2c852a; --brand-hi:#38a035; --ink:#1a1a18; --paper:#f4f7f3; --muted:#5a6058; --line:rgba(26,26,24,.14);
+  --ok:#3fbf4a; --warn:#f0b429; --bad:#ff5c5c;
+  --f-d:"Montserrat",system-ui,-apple-system,"Segoe UI",sans-serif; --f-b:"Roboto",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--paper);color:var(--ink);font:15px/1.45 var(--f-b);overscroll-behavior:none}
+button{font:inherit}
+.screen{position:fixed;inset:0;display:flex;flex-direction:column}
+.screen[hidden]{display:none}
+.top{background:var(--brand);color:#fff;padding:calc(12px + env(safe-area-inset-top,0px)) 16px 12px;display:flex;align-items:center;gap:12px}
+.top .mk{width:30px;height:30px;flex:none}
+.top b{font:800 16px var(--f-d);display:block}
+.top span{font-size:12px;opacity:.85}
+.body{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:14px}
+.foot{padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));display:flex;gap:10px;background:var(--paper);border-top:1px solid var(--line)}
+.btn{flex:1;min-height:50px;border-radius:14px;border:1px solid var(--line);background:#fff;color:var(--ink);font:700 15px var(--f-d);cursor:pointer;padding:0 14px}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+.btn:disabled{opacity:.45}
+.hint{color:var(--muted);font-size:13px}
+.err{color:#b42318;font-size:14px}
+
+/* tutorial */
+.tut[hidden]{display:none}
+.tut{position:fixed;inset:0;background:#0f1a10;color:#fff;display:flex;flex-direction:column;padding:calc(10px + env(safe-area-inset-top,0px)) 16px calc(16px + env(safe-area-inset-bottom,0px))}
+.bars{display:flex;gap:4px}
+.bars i{flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.25);overflow:hidden;position:relative}
+.bars i b{position:absolute;inset:0;background:#fff;transform-origin:left;transform:scaleX(0)}
+.bars i.done b{transform:scaleX(1)}
+.bars i.now b{animation:fill var(--dur) linear forwards}
+@keyframes fill{to{transform:scaleX(1)}}
+.tutstep{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;text-align:center}
+.tutstep svg{width:min(78vw,320px);height:auto}
+.tutstep h2{margin:0;font:800 22px/1.2 var(--f-d)}
+.tutstep p{margin:0;max-width:320px;color:#cfe3cd;font-size:15px}
+.tutnum{font:800 13px var(--f-d);color:#7fd37b;letter-spacing:.12em}
+.tutfoot{display:flex;gap:10px}
+.tutfoot .btn{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.2);color:#fff}
+.tutfoot .btn.primary{background:var(--brand);border-color:var(--brand)}
+.tap{position:absolute;inset:60px 0 90px;display:flex}
+.tap div{flex:1}
+
+/* camera */
+#cam{background:#000;color:#fff}
+#cam video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.ov{position:absolute;inset:0;pointer-events:none}
+.grid{position:absolute;inset:0;background:
+  linear-gradient(to right,transparent calc(33.33% - .5px),rgba(255,255,255,.35) calc(33.33% - .5px),rgba(255,255,255,.35) calc(33.33% + .5px),transparent calc(33.33% + .5px),transparent calc(66.66% - .5px),rgba(255,255,255,.35) calc(66.66% - .5px),rgba(255,255,255,.35) calc(66.66% + .5px),transparent calc(66.66% + .5px)),
+  linear-gradient(to bottom,transparent calc(33.33% - .5px),rgba(255,255,255,.35) calc(33.33% - .5px),rgba(255,255,255,.35) calc(33.33% + .5px),transparent calc(33.33% + .5px),transparent calc(66.66% - .5px),rgba(255,255,255,.35) calc(66.66% - .5px),rgba(255,255,255,.35) calc(66.66% + .5px),transparent calc(66.66% + .5px))}
+.frame{position:absolute;left:8%;right:8%;top:16%;bottom:24%;border:3px solid var(--bad);border-radius:14px;transition:border-color .2s}
+.frame.ok{border-color:var(--ok)}
+.frame.mid{border-color:var(--warn)}
+.horizon{position:absolute;left:20%;right:20%;top:50%;height:3px;margin-top:-1.5px;background:#fff;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.4);transform:rotate(var(--roll,0deg));transition:transform .08s linear}
+.horizon.ok{background:var(--ok)}
+.bubblebox{position:absolute;right:16px;top:50%;width:14px;height:120px;margin-top:-60px;border-radius:7px;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.5)}
+.bubblebox i{position:absolute;left:1px;width:10px;height:10px;border-radius:50%;background:#fff;top:calc(50% - 5px + var(--pitch,0) * 1px)}
+.bubblebox::after{content:"";position:absolute;left:-3px;right:-3px;top:50%;height:1px;background:rgba(255,255,255,.7)}
+.camtop{position:absolute;left:0;right:0;top:0;padding:calc(10px + env(safe-area-inset-top,0px)) 14px 10px;display:flex;flex-direction:column;align-items:center;gap:8px;background:linear-gradient(rgba(0,0,0,.6),transparent)}
+.camtitle{font:700 13px var(--f-d);opacity:.9}
+.pill{padding:8px 14px;border-radius:999px;background:rgba(0,0,0,.65);font:700 14px var(--f-d);text-align:center;max-width:92%}
+.pill.ok{background:rgba(31,120,40,.85)}
+.subpill{font-size:12px;opacity:.85;text-align:center;max-width:90%}
+.cambar{position:absolute;left:0;right:0;bottom:0;padding:16px 20px calc(18px + env(safe-area-inset-bottom,0px));display:flex;align-items:center;justify-content:space-between;background:linear-gradient(transparent,rgba(0,0,0,.7))}
+.shutter{width:76px;height:76px;border-radius:50%;border:4px solid #fff;background:rgba(255,255,255,.25);cursor:pointer;position:relative}
+.shutter::after{content:"";position:absolute;inset:6px;border-radius:50%;background:#fff}
+.shutter:disabled{opacity:.35}
+.shutter.ok::after{background:var(--ok)}
+.side{min-width:76px;color:#fff;background:none;border:0;font:700 13px var(--f-d);cursor:pointer;padding:8px}
+.side[hidden]{visibility:hidden;display:block}
+
+/* mark */
+.stage{position:relative;flex:1;background:#111;overflow:hidden;touch-action:none}
+.stage canvas{position:absolute;left:0;top:0}
+.markhead{background:#111;color:#fff;padding:calc(10px + env(safe-area-inset-top,0px)) 16px 10px;text-align:center}
+.markhead b{display:block;font:800 16px var(--f-d)}
+.markhead span{font-size:13px;color:#cfe3cd}
+.markfoot{background:#111;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));display:flex;gap:10px}
+.markfoot .btn{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.2);color:#fff}
+.markfoot .btn.primary{background:var(--brand);border-color:var(--brand)}
+
+/* dims */
+.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.card h3{margin:0;font:800 15px var(--f-d)}
+.prev{width:100%;border-radius:12px;display:block;background:#ddd}
+.seg{display:flex;gap:4px;padding:4px;border-radius:12px;background:#e7ede6}
+.seg button{flex:1;height:40px;border:0;border-radius:9px;background:transparent;font:700 14px var(--f-d);color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--brand);color:#fff}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font:700 12px var(--f-d);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.inp{position:relative}
+.inp input{width:100%;height:52px;border-radius:12px;border:1.5px solid var(--line);background:#fff;padding:0 54px 0 14px;font:700 20px var(--f-d);color:var(--ink)}
+.inp input:focus{outline:none;border-color:var(--brand)}
+.inp span{position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--muted);font:600 14px var(--f-b)}
+.est{font-size:12px;color:var(--brand);font-weight:700}
+.need input{border-color:var(--warn)}
+.voice{display:flex;flex-direction:column;gap:6px}
+.voice input{width:100%;height:48px;border-radius:12px;border:1.5px dashed var(--brand);padding:0 14px;font:500 15px var(--f-b);background:#f2f8f1}
+.done{align-items:center;justify-content:center;text-align:center}
+.done .big{font:800 24px var(--f-d)}
+.busy{display:inline-flex;align-items:center;gap:10px;font:600 14px var(--f-d)}
+.busy::before{content:"";width:18px;height:18px;border-radius:50%;border:3px solid var(--brand);border-right-color:transparent;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.bars i.now b{animation-duration:.01s}}
+</style>
+</head>
+<body>
+
+<!-- loading / errors -->
+<section class="screen" id="sLoad">
+  <div class="top"><svg class="mk" viewBox="0 0 100 100" aria-hidden="true"><path d="M50 6 L92 94 H74 L50 42 L26 94 H8 Z M14 72 H58 L52 84 H8 Z" fill="#fff"/></svg><div><b>Замер ALCANA</b><span>Загружаю заказ…</span></div></div>
+  <div class="body"><p id="loadMsg" class="hint">Подключаюсь…</p></div>
+</section>
+
+<!-- tutorial -->
+<section class="tut" id="sTut" hidden>
+  <div class="bars" id="tutBars"></div>
+  <div class="tutstep" id="tutStep" aria-live="polite"></div>
+  <div class="tap"><div id="tutPrev"></div><div id="tutNext"></div></div>
+  <div class="tutfoot"><button class="btn" id="tutSkip" type="button">Не показывать сегодня</button><button class="btn primary" id="tutGo" type="button">Понял, снимаю</button></div>
+</section>
+
+<!-- camera -->
+<section class="screen" id="cam" hidden>
+  <video id="video" playsinline autoplay muted></video>
+  <div class="ov">
+    <div class="grid"></div>
+    <div class="frame" id="frame"></div>
+    <div class="horizon" id="horizon"></div>
+    <div class="bubblebox"><i id="bubble"></i></div>
+  </div>
+  <div class="camtop"><span class="camtitle" id="camTitle">Фото фасада</span><span class="pill" id="pill">Держи телефон вертикально</span><span class="subpill" id="subpill">Встань напротив центра фасада, захвати его целиком</span></div>
+  <div class="cambar">
+    <button class="side" id="galBtn" type="button">Галерея</button>
+    <button class="shutter" id="shutter" type="button" aria-label="Сделать фото" disabled></button>
+    <button class="side" id="forceBtn" type="button" hidden>Снять так</button>
+  </div>
+  <input type="file" id="galIn" accept="image/*" hidden>
+  <input type="file" id="nativeIn" accept="image/*" capture="environment" hidden>
+</section>
+
+<!-- mark area -->
+<section class="screen" id="sMark" hidden style="background:#111">
+  <div class="markhead"><b id="markTitle">Тапни по месту под рекламу</b><span id="markSub">Лоб здания, стена или окно. Границы найду сам, потом поправишь уголки.</span></div>
+  <div class="stage" id="stage"><canvas id="mc"></canvas></div>
+  <div class="markfoot"><button class="btn" id="markBack" type="button">Переснять</button><button class="btn" id="markReset" type="button">Заново</button><button class="btn primary" id="markNext" type="button" disabled>Дальше</button></div>
+</section>
+
+<!-- dims -->
+<section class="screen" id="sDims" hidden>
+  <div class="top"><svg class="mk" viewBox="0 0 100 100" aria-hidden="true"><path d="M50 6 L92 94 H74 L50 42 L26 94 H8 Z M14 72 H58 L52 84 H8 Z" fill="#fff"/></svg><div><b id="dimsTitle">Размеры</b><span>Одно измерение рулеткой — остальное посчитаю</span></div></div>
+  <div class="body">
+    <img class="prev" id="prevImg" alt="Фото с отмеченным местом">
+    <div class="card">
+      <h3>Что ты замерил рулеткой?</h3>
+      <div class="seg" role="group" aria-label="Что замерено"><button type="button" data-ref="h" aria-pressed="true">Высоту места</button><button type="button" data-ref="w" aria-pressed="false">Ширину места</button></div>
+      <div class="field"><label for="refMm" id="refLbl">Высота места по рулетке</label><div class="inp"><input id="refMm" type="text" inputmode="decimal" autocomplete="off" placeholder="например 900"><span>мм</span></div></div>
+      <p class="hint">Можно сказать голосом: нажми микрофон на клавиатуре. «Девятьсот», «0,9 метра», «90 см» — пойму.</p>
+    </div>
+    <div class="card">
+      <h3>Проверь все размеры</h3>
+      <p class="hint">Зелёным — расчёт по фото. Перемерь рулеткой и впиши точные цифры. Без этого сохранить нельзя.</p>
+      <div class="field"><label for="d_placeW">Ширина места</label><div class="inp"><input id="d_placeW" type="text" inputmode="decimal" autocomplete="off"><span>мм</span></div><span class="est" id="e_placeW"></span></div>
+      <div class="field"><label for="d_placeH">Высота места</label><div class="inp"><input id="d_placeH" type="text" inputmode="decimal" autocomplete="off"><span>мм</span></div><span class="est" id="e_placeH"></span></div>
+      <div class="field"><label for="d_elev">От земли до низа места</label><div class="inp"><input id="d_elev" type="text" inputmode="decimal" autocomplete="off"><span>мм</span></div><span class="est" id="e_elev"></span></div>
+      <div class="field"><label for="d_signW">Ширина вывески (если уже известна)</label><div class="inp"><input id="d_signW" type="text" inputmode="decimal" autocomplete="off"><span>мм</span></div></div>
+      <div class="field"><label for="d_signH">Высота вывески (если уже известна)</label><div class="inp"><input id="d_signH" type="text" inputmode="decimal" autocomplete="off"><span>мм</span></div></div>
+    </div>
+    <div class="card voice">
+      <h3>Сказать всё голосом</h3>
+      <input id="voiceIn" type="text" autocomplete="off" placeholder="ширина 4200 высота 900 от земли 3200" aria-label="Размеры голосом">
+      <p class="hint">Нажми микрофон на клавиатуре и продиктуй. Размеры разложу по полям сам.</p>
+    </div>
+    <p class="err" id="dimsErr" hidden></p>
+  </div>
+  <div class="foot"><button class="btn" id="dimsBack" type="button">Назад</button><button class="btn primary" id="dimsSave" type="button" disabled>Сохранить замер</button></div>
+</section>
+
+<!-- done -->
+<section class="screen" id="sDone" hidden>
+  <div class="top"><svg class="mk" viewBox="0 0 100 100" aria-hidden="true"><path d="M50 6 L92 94 H74 L50 42 L26 94 H8 Z M14 72 H58 L52 84 H8 Z" fill="#fff"/></svg><div><b>Замер сохранён</b><span id="doneSub"></span></div></div>
+  <div class="body done" id="doneBody"></div>
+  <div class="foot"><button class="btn" id="moreBtn" type="button">Ещё фото крупно</button><button class="btn primary" id="closeBtn" type="button">Готово</button></div>
+</section>
+
+<script>
+(() => {
+const TG = window.Telegram && Telegram.WebApp;
+const qs = new URLSearchParams(location.search);
+const API = qs.get("api"), ORDER = qs.get("o");
+const $ = s => document.querySelector(s);
+const show = id => document.querySelectorAll(".screen,.tut").forEach(el => el.hidden = el.id !== id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let order = null, photo = null /* {img, w, h, dataUrl} */, quad = null, ground = null, ref = "h", mode = "main";
+if (TG) { TG.ready(); TG.expand(); try { TG.setHeaderColor("#2c852a"); TG.setBackgroundColor("#f4f7f3"); TG.disableVerticalSwipes && TG.disableVerticalSwipes(); } catch {} }
+
+/* ---------- API ---------- */
+async function api(action, data){
+  const res = await fetch(API, { method: "POST", body: JSON.stringify(Object.assign({ api: action, init: TG ? TG.initData : "", id: ORDER }, data || {})) });
+  const j = await res.json();
+  if (!j.ok) throw new Error(j.error || "Ошибка сервера");
+  return j;
+}
+async function boot(){
+  if (!API || !ORDER) { $("#loadMsg").textContent = "Открой замер из карточки заказа в боте: кнопка «Замер с камерой»."; return; }
+  try {
+    const r = await api("order");
+    order = r.order;
+    document.querySelector("#sLoad .top span").textContent = "№" + order.id + " · " + order.name;
+    $("#camTitle").textContent = "Фото фасада · №" + order.id + " " + order.name;
+    $("#dimsTitle").textContent = "Размеры · №" + order.id;
+    startTutorial();
+  } catch (e) { $("#loadMsg").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+}
+
+/* ---------- tutorial ---------- */
+const G = "#2c852a", L = "#7fd37b";
+const STEPS = [
+  { h: "Встань напротив центра фасада", p: "Не сбоку и не под углом. Отойди так, чтобы влезло всё место под рекламу и немного земли.",
+    svg: `<svg viewBox="0 0 320 220"><rect x="20" y="40" width="280" height="22" fill="${G}"/><text x="160" y="56" fill="#fff" font-size="12" font-family="Montserrat" font-weight="800" text-anchor="middle">ФАСАД</text>
+      <line x1="160" y1="66" x2="160" y2="170" stroke="${L}" stroke-width="3" stroke-dasharray="7 6"/><circle cx="160" cy="185" r="16" fill="#fff"/><path d="M152 182 L160 168 L168 182" fill="none" stroke="${G}" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="60" cy="170" r="11" fill="none" stroke="#ff7a7a" stroke-width="3"/><path d="M53 163 L67 177 M67 163 L53 177" stroke="#ff7a7a" stroke-width="3"/><line x1="70" y1="160" x2="130" y2="70" stroke="#ff7a7a" stroke-width="2" stroke-dasharray="4 5"/></svg>` },
+  { h: "Держи телефон вертикально и ровно", p: "Линия горизонта на экране станет зелёной. Не наклоняй телефон вверх: фасад «завалится».",
+    svg: `<svg viewBox="0 0 320 220"><rect x="115" y="20" width="90" height="180" rx="16" fill="none" stroke="#fff" stroke-width="5"/><line x1="130" y1="110" x2="190" y2="110" stroke="${L}" stroke-width="5" stroke-linecap="round"/>
+      <rect x="215" y="55" width="12" height="110" rx="6" fill="none" stroke="#fff" stroke-width="2"/><circle cx="221" cy="110" r="5" fill="${L}"/><line x1="211" y1="110" x2="231" y2="110" stroke="#fff"/>
+      <path d="M60 110 a60 60 0 0 1 40 -56" fill="none" stroke="#ff7a7a" stroke-width="3" stroke-dasharray="5 5"/><path d="M92 46 L101 54 L89 59" fill="none" stroke="#ff7a7a" stroke-width="3"/></svg>` },
+  { h: "Захвати фасад целиком", p: "Нужны края места под рекламу, окна рядом и земля внизу. Так я посчитаю высоту от земли.",
+    svg: `<svg viewBox="0 0 320 220"><rect x="70" y="30" width="180" height="160" fill="none" stroke="#fff" stroke-width="3"/><rect x="88" y="52" width="144" height="34" fill="${G}"/><text x="160" y="74" fill="#fff" font-size="13" font-family="Montserrat" font-weight="800" text-anchor="middle">МЕСТО</text>
+      <rect x="92" y="104" width="50" height="60" fill="none" stroke="#fff" stroke-width="2"/><rect x="178" y="104" width="50" height="86" fill="none" stroke="#fff" stroke-width="2"/><line x1="40" y1="190" x2="280" y2="190" stroke="${L}" stroke-width="4"/>
+      <path d="M50 20 H70 M50 20 V40 M270 20 H250 M270 20 V40 M50 200 H70 M50 200 V180 M270 200 H250 M270 200 V180" stroke="${L}" stroke-width="4" fill="none"/></svg>` },
+  { h: "Замерь рулеткой высоту места", p: "Одного измерения хватит: ширину и высоту от земли я посчитаю по фото. В конце всё равно впишешь точные цифры.",
+    svg: `<svg viewBox="0 0 320 220"><rect x="60" y="50" width="200" height="60" fill="${G}"/><line x1="280" y1="50" x2="280" y2="110" stroke="#fff" stroke-width="3"/><path d="M272 58 L280 48 L288 58 M272 102 L280 112 L288 102" fill="none" stroke="#fff" stroke-width="3"/>
+      <text x="288" y="86" fill="#fff" font-size="14" font-family="Montserrat" font-weight="800">900</text><rect x="120" y="140" width="80" height="44" rx="8" fill="#ffd34d"/><circle cx="160" cy="162" r="13" fill="#1a1a18"/><rect x="200" y="155" width="70" height="14" fill="#ffd34d"/></svg>` },
+  { h: "Потом — крупный план", p: "После сохранения сфоткай отдельно место под рекламу вблизи и рулетку с цифрами.",
+    svg: `<svg viewBox="0 0 320 220"><rect x="40" y="40" width="240" height="140" rx="12" fill="none" stroke="#fff" stroke-width="3"/><rect x="60" y="70" width="200" height="50" fill="${G}"/><rect x="60" y="134" width="150" height="16" fill="#ffd34d"/>
+      ${[0,1,2,3,4,5,6].map(i=>`<line x1="${70+i*20}" y1="134" x2="${70+i*20}" y2="${i%2?142:146}" stroke="#1a1a18" stroke-width="2"/>`).join("")}<circle cx="250" cy="60" r="18" fill="none" stroke="${L}" stroke-width="4"/><circle cx="250" cy="60" r="6" fill="${L}"/></svg>` }
+];
+let tutI = 0, tutT = 0;
+const TUT_MS = 3200, TUT_KEY = "alcana-tut-skip";
+function startTutorial(){
+  let skip = ""; try { skip = localStorage.getItem(TUT_KEY) || ""; } catch {}
+  if (skip === new Date().toDateString()) return openCamera();
+  $("#tutBars").innerHTML = STEPS.map(() => `<i><b></b></i>`).join("");
+  $("#tutBars").style.setProperty("--dur", TUT_MS + "ms");
+  show("sTut"); tutShow(0);
+}
+function tutShow(i){
+  tutI = Math.max(0, Math.min(STEPS.length - 1, i)); clearTimeout(tutT);
+  const s = STEPS[tutI];
+  $("#tutStep").innerHTML = `<span class="tutnum">ШАГ ${tutI+1} ИЗ ${STEPS.length}</span>${s.svg}<h2>${s.h}</h2><p>${s.p}</p>`;
+  [...$("#tutBars").children].forEach((el, k) => { el.className = k < tutI ? "done" : k === tutI ? "now" : ""; if (k === tutI) { const b = el.firstChild; b.style.animation = "none"; b.offsetWidth; b.style.animation = ""; } });
+  if (tutI < STEPS.length - 1) tutT = setTimeout(() => tutShow(tutI + 1), TUT_MS);
+}
+$("#tutNext").onclick = () => tutI < STEPS.length - 1 ? tutShow(tutI + 1) : openCamera();
+$("#tutPrev").onclick = () => tutShow(tutI - 1);
+$("#tutGo").onclick = () => { clearTimeout(tutT); openCamera(); };
+$("#tutSkip").onclick = () => { try { localStorage.setItem(TUT_KEY, new Date().toDateString()); } catch {} clearTimeout(tutT); openCamera(); };
+
+/* ---------- camera ---------- */
+let stream = null, analyseT = 0, levelOk = false, frontOk = false, forceT = 0, motion = { roll: 0, pitch: 0, has: false };
+async function openCamera(){
+  show("cam"); levelOk = frontOk = false; updateShutter();
+  $("#forceBtn").hidden = true; clearTimeout(forceT);
+  forceT = setTimeout(() => { $("#forceBtn").hidden = false; }, 7000);
+  if (mode === "extra") { $("#pill").textContent = "Крупный план места или рулетки"; $("#subpill").textContent = "Ровно не обязательно, главное — чётко"; }
+  startMotion();
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+    const v = $("#video"); v.srcObject = stream; await v.play();
+    clearInterval(analyseT); analyseT = setInterval(analyseFrame, 450);
+  } catch (e) {
+    // камера в этом Telegram недоступна — открываем обычную камеру телефона
+    $("#pill").textContent = "Камера в приложении недоступна";
+    $("#subpill").textContent = "Нажми кнопку — откроется обычная камера телефона. Подсказки из туториала в силе.";
+    const sh = $("#shutter"); sh.disabled = false; sh.onclick = () => $("#nativeIn").click();
+  }
+}
+function stopCamera(){ clearInterval(analyseT); clearTimeout(forceT); if (stream) stream.getTracks().forEach(t => t.stop()); stream = null; stopMotion(); }
+
+/* level from accelerometer (gravity) */
+function onGravity(x, y, z){
+  // портрет: гравитация вдоль оси y. roll — завал вбок, pitch — наклон вперёд/назад
+  const g = Math.hypot(x, y, z) || 9.8;
+  motion.roll = Math.atan2(x, Math.abs(y)) * 180 / Math.PI;
+  motion.pitch = Math.asin(Math.max(-1, Math.min(1, z / g))) * 180 / Math.PI;
+  if (TG && TG.platform === "ios") motion.roll = -motion.roll;
+  motion.has = true; paintLevel();
+}
+let dmHandler = null;
+function startMotion(){
+  motion.has = false;
+  if (TG && TG.Accelerometer && TG.isVersionAtLeast && TG.isVersionAtLeast("8.0")) {
+    try {
+      TG.Accelerometer.start({ refresh_rate: 60 });
+      TG.onEvent("accelerometerChanged", tgAcc);
+      return;
+    } catch {}
+  }
+  dmHandler = e => { const a = e.accelerationIncludingGravity; if (a && a.x != null) onGravity(-a.x, -a.y, -a.z); };
+  const go = () => window.addEventListener("devicemotion", dmHandler);
+  if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === "function") {
+    document.addEventListener("click", function once(){ DeviceMotionEvent.requestPermission().then(r => { if (r === "granted") go(); }).catch(() => {}); document.removeEventListener("click", once); }, { once: true });
+  } else go();
+  setTimeout(() => { if (!motion.has) { levelOk = true; $("#horizon").style.display = "none"; document.querySelector(".bubblebox").style.display = "none"; updateShutter(); } }, 2500);
+}
+function tgAcc(){ const a = TG.Accelerometer; onGravity(a.x, a.y, a.z); }
+function stopMotion(){ try { TG && TG.Accelerometer && TG.Accelerometer.stop(); TG && TG.offEvent("accelerometerChanged", tgAcc); } catch {} if (dmHandler) window.removeEventListener("devicemotion", dmHandler); }
+function paintLevel(){
+  const roll = motion.roll, pitch = motion.pitch;
+  $("#horizon").style.setProperty("--roll", (-roll).toFixed(1) + "deg");
+  $("#bubble").parentNode.style.setProperty("--pitch", Math.max(-50, Math.min(50, pitch * 2.5)).toFixed(1));
+  const okRoll = Math.abs(roll) < 2.5, okPitch = Math.abs(pitch) < 6;
+  levelOk = mode === "extra" || (okRoll && okPitch);
+  $("#horizon").classList.toggle("ok", okRoll);
+  updateShutter();
+}
+
+/* facade lines: near-horizontal edges should stay horizontal when you stand in front */
+const ac = document.createElement("canvas"), actx = ac.getContext("2d", { willReadFrequently: true });
+let frontHint = "";
+function analyseFrame(){
+  const v = $("#video"); if (!v.videoWidth) return;
+  const W = 160, H = Math.round(160 * v.videoHeight / v.videoWidth);
+  ac.width = W; ac.height = H; actx.drawImage(v, 0, 0, W, H);
+  const d = actx.getImageData(0, 0, W, H).data, gray = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) gray[i] = d[i*4] * .3 + d[i*4+1] * .59 + d[i*4+2] * .11;
+  let sTop = 0, wTop = 0, sBot = 0, wBot = 0, edges = 0;
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+    const i = y * W + x;
+    const gx = gray[i-W+1] + 2*gray[i+1] + gray[i+W+1] - gray[i-W-1] - 2*gray[i-1] - gray[i+W-1];
+    const gy = gray[i+W-1] + 2*gray[i+W] + gray[i+W+1] - gray[i-W-1] - 2*gray[i-W] - gray[i-W+1];
+    const m = Math.abs(gx) + Math.abs(gy);
+    if (m < 90 || Math.abs(gy) < Math.abs(gx) * 1.7) continue;   // only strong, near-horizontal edges
+    const ang = Math.atan2(-gx, gy);                               // edge slope, 0 = horizontal
+    const a = ang > Math.PI/2 ? ang - Math.PI : ang < -Math.PI/2 ? ang + Math.PI : ang;
+    edges++;
+    if (y < H / 2) { sTop += a * m; wTop += m; } else { sBot += a * m; wBot += m; }
+  }
+  const top = wTop ? sTop / wTop * 180 / Math.PI : 0, bot = wBot ? sBot / wBot * 180 / Math.PI : 0;
+  // при съёмке сбоку линии сходятся: сверху и снизу наклон в разные стороны
+  const conv = top - bot;
+  if (edges < 60) { frontOk = true; frontHint = ""; }
+  else if (Math.abs(conv) < 3.5) { frontOk = true; frontHint = ""; }
+  else { frontOk = false; frontHint = conv > 0 ? "Фасад под углом — сместись левее" : "Фасад под углом — сместись правее"; }
+  updateShutter();
+}
+function updateShutter(){
+  const sh = $("#shutter"); if (!stream) return;
+  const ok = mode === "extra" || (levelOk && frontOk);
+  sh.disabled = !(ok || !$("#forceBtn").hidden);
+  sh.classList.toggle("ok", ok);
+  const fr = $("#frame"); fr.classList.toggle("ok", ok); fr.classList.toggle("mid", !ok && levelOk);
+  const pill = $("#pill");
+  if (mode === "extra") return;
+  if (!levelOk) { pill.textContent = Math.abs(motion.roll) >= 2.5 ? "Выровняй телефон — не заваливай вбок" : "Держи телефон вертикально, не наклоняй вверх"; pill.className = "pill"; }
+  else if (!frontOk) { pill.textContent = frontHint; pill.className = "pill"; }
+  else { pill.textContent = "Ровно! Снимай"; pill.className = "pill ok"; }
+}
+$("#shutter").onclick = () => capture();
+$("#forceBtn").onclick = () => capture();
+$("#galBtn").onclick = () => $("#galIn").click();
+async function capture(){
+  const v = $("#video"); if (!v.videoWidth) return;
+  const k = Math.min(1, 2000 / Math.max(v.videoWidth, v.videoHeight));
+  const c = document.createElement("canvas"); c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
+  c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+  try { TG && TG.HapticFeedback && TG.HapticFeedback.impactOccurred("medium"); } catch {}
+  await gotImage(c.toDataURL("image/jpeg", .9));
+}
+for (const id of ["galIn", "nativeIn"]) $("#" + id).addEventListener("change", async e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  const bmp = await createImageBitmap(f, { imageOrientation: "from-image" });
+  const k = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+  await gotImage(c.toDataURL("image/jpeg", .9));
+});
+async function gotImage(dataUrl){
+  stopCamera();
+  if (mode === "extra") return uploadExtra(dataUrl);
+  const img = new Image(); img.src = dataUrl; await img.decode();
+  photo = { img, w: img.naturalWidth, h: img.naturalHeight, dataUrl };
+  quad = null; ground = null; markStep = "area";
+  show("sMark"); layoutStage(); drawMark(); setMarkText();
+}
+
+/* ---------- mark area ---------- */
+let view = { k: 1, ox: 0, oy: 0 }, markStep = "area", drag = -1;
+function layoutStage(){
+  const st = $("#stage"), c = $("#mc"), r = st.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+  c.width = r.width * dpr; c.height = r.height * dpr; c.style.width = r.width + "px"; c.style.height = r.height + "px";
+  const k = Math.min(r.width / photo.w, r.height / photo.h);
+  view = { k, ox: (r.width - photo.w * k) / 2, oy: (r.height - photo.h * k) / 2, dpr };
+}
+const toScreen = p => [view.ox + p[0] * view.k, view.oy + p[1] * view.k];
+const toImg = (x, y) => [(x - view.ox) / view.k, (y - view.oy) / view.k];
+function drawMark(){
+  const c = $("#mc"), g = c.getContext("2d");
+  g.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+  g.clearRect(0, 0, c.width, c.height);
+  g.drawImage(photo.img, view.ox, view.oy, photo.w * view.k, photo.h * view.k);
+  if (quad) {
+    const s = quad.map(toScreen);
+    g.fillStyle = "rgba(44,133,42,.28)"; g.strokeStyle = "#7fd37b"; g.lineWidth = 3;
+    g.beginPath(); s.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath(); g.fill(); g.stroke();
+    s.forEach(p => { g.beginPath(); g.arc(p[0], p[1], 13, 0, Math.PI * 2); g.fillStyle = "rgba(255,255,255,.95)"; g.fill(); g.lineWidth = 4; g.strokeStyle = "#2c852a"; g.stroke(); });
+  }
+  if (ground) {
+    const p = toScreen(ground);
+    g.strokeStyle = "#ffd34d"; g.lineWidth = 3; g.setLineDash([8, 6]);
+    g.beginPath(); g.moveTo(view.ox, p[1]); g.lineTo(view.ox + photo.w * view.k, p[1]); g.stroke(); g.setLineDash([]);
+    g.fillStyle = "#ffd34d"; g.font = "700 13px Montserrat, sans-serif"; g.fillText("земля", p[0] + 10, p[1] - 8);
+  }
+}
+function setMarkText(){
+  const t = $("#markTitle"), s = $("#markSub"), n = $("#markNext");
+  if (markStep === "area") { t.textContent = quad ? "Поправь уголки" : "Тапни по месту под рекламу"; s.textContent = quad ? "Перетащи белые точки точно на углы места. Тап в другое место — найти заново." : "Лоб здания, стена или окно. Границы найду сам, потом поправишь уголки."; n.disabled = !quad; n.textContent = "Дальше"; }
+  else { t.textContent = "Тапни по земле под этим местом"; s.textContent = "Где фасад встречается с тротуаром. Так посчитаю высоту от земли."; n.disabled = false; n.textContent = ground ? "Дальше" : "Пропустить"; }
+}
+const stage = $("#stage");
+stage.addEventListener("pointerdown", e => {
+  const r = stage.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  if (markStep === "area" && quad) {
+    const s = quad.map(toScreen); let best = -1, bd = 34;
+    s.forEach((p, i) => { const d = Math.hypot(p[0] - x, p[1] - y); if (d < bd) { bd = d; best = i; } });
+    if (best >= 0) { drag = best; stage.setPointerCapture(e.pointerId); return; }
+  }
+  const [ix, iy] = toImg(x, y);
+  if (ix < 0 || iy < 0 || ix > photo.w || iy > photo.h) return;
+  if (markStep === "area") { quad = detectRegion(ix, iy); setMarkText(); }
+  else { ground = [ix, iy]; setMarkText(); }
+  drawMark();
+});
+stage.addEventListener("pointermove", e => {
+  if (drag < 0) return;
+  const r = stage.getBoundingClientRect();
+  const [ix, iy] = toImg(e.clientX - r.left, e.clientY - r.top);
+  quad[drag] = [Math.max(0, Math.min(photo.w, ix)), Math.max(0, Math.min(photo.h, iy))];
+  drawMark();
+});
+stage.addEventListener("pointerup", () => { drag = -1; });
+stage.addEventListener("pointercancel", () => { drag = -1; });
+addEventListener("resize", () => { if (!$("#sMark").hidden) { layoutStage(); drawMark(); } });
+$("#markReset").onclick = () => { if (markStep === "area") quad = null; else ground = null; setMarkText(); drawMark(); };
+$("#markBack").onclick = () => { if (markStep === "ground") { markStep = "area"; setMarkText(); drawMark(); } else openCamera(); };
+$("#markNext").onclick = () => { if (markStep === "area") { markStep = "ground"; setMarkText(); drawMark(); } else openDims(); };
+
+/* region growing from the tapped point → 4 corners (perspective-friendly) */
+function detectRegion(ix, iy){
+  const S = 480, k = Math.min(1, S / Math.max(photo.w, photo.h));
+  const W = Math.round(photo.w * k), H = Math.round(photo.h * k);
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d", { willReadFrequently: true }); g.drawImage(photo.img, 0, 0, W, H);
+  const d = g.getImageData(0, 0, W, H).data;
+  const sx = Math.round(ix * k), sy = Math.round(iy * k);
+  // seed color = median-ish of 5×5 around tap
+  let r0 = 0, g0 = 0, b0 = 0, n = 0;
+  for (let y = -2; y <= 2; y++) for (let x = -2; x <= 2; x++) { const xx = Math.min(W-1, Math.max(0, sx+x)), yy = Math.min(H-1, Math.max(0, sy+y)), i = (yy*W+xx)*4; r0 += d[i]; g0 += d[i+1]; b0 += d[i+2]; n++; }
+  r0 /= n; g0 /= n; b0 /= n;
+  const grow = tol => {
+    const seen = new Uint8Array(W * H), stack = [sy * W + sx]; seen[sy * W + sx] = 1;
+    const pts = []; const t2 = tol * tol;
+    while (stack.length) {
+      const p = stack.pop(), x = p % W, y = (p - x) / W; pts.push(p);
+      if (pts.length > W * H * .7) break;
+      for (const q of [p-1, p+1, p-W, p+W]) {
+        if (q < 0 || q >= W*H || seen[q]) continue;
+        const qx = q % W; if (Math.abs(qx - x) > 1) continue;
+        const i = q * 4, dr = d[i]-r0, dg = d[i+1]-g0, db = d[i+2]-b0;
+        if (dr*dr*.3 + dg*dg*.59 + db*db*.11 > t2) continue;
+        seen[q] = 1; stack.push(q);
+      }
+    }
+    return pts;
+  };
+  let tol = 26, pts = grow(tol), area = W * H;
+  for (let tries = 0; tries < 5; tries++) {
+    if (pts.length < area * .006) { tol += 10; pts = grow(tol); }
+    else if (pts.length > area * .55) { tol -= 7; pts = grow(tol); }
+    else break;
+  }
+  if (pts.length < area * .002 || pts.length > area * .65) {
+    const bw = photo.w * .3, bh = photo.h * .12;
+    return [[ix-bw/2, iy-bh/2], [ix+bw/2, iy-bh/2], [ix+bw/2, iy+bh/2], [ix-bw/2, iy+bh/2]];
+  }
+  // extreme points along the diagonals give the four corners of the (perspective) rectangle
+  let tl = [1e9], tr = [-1e9], br = [-1e9], bl = [1e9], TL, TR, BR, BL;
+  for (const p of pts) { const x = p % W, y = (p - x) / W;
+    if (x + y < tl[0]) { tl = [x + y]; TL = [x, y]; }
+    if (x - y > tr[0]) { tr = [x - y]; TR = [x, y]; }
+    if (x + y > br[0]) { br = [x + y]; BR = [x, y]; }
+    if (x - y < bl[0]) { bl = [x - y]; BL = [x, y]; } }
+  return [TL, TR, BR, BL].map(p => [p[0] / k, p[1] / k]);
+}
+
+/* ---------- dims: one tape measurement → the rest by proportion ---------- */
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+function quadPx(){ const [TL, TR, BR, BL] = quad; return { w: (dist(TL, TR) + dist(BL, BR)) / 2, h: (dist(TL, BL) + dist(TR, BR)) / 2, bottom: (BL[1] + BR[1]) / 2, left: [BL, TL], right: [BR, TR] }; }
+const r10 = v => Math.round(v / 10) * 10;
+let est = {};
+function openDims(){
+  show("sDims");
+  $("#prevImg").src = annotate(.6);
+  recompute();
+}
+function parseMm(s){
+  s = String(s || "").toLowerCase().replace(",", ".").trim(); if (!s) return null;
+  const n = wordsToNum(s); if (n == null) return null;
+  if (/(^|\s)(м|метр|метра|метров|m|metr)(\s|$|\.)/.test(s) || (n < 30 && !/мм|mm|см|sm|cm/.test(s))) return Math.round(n * 1000);
+  if (/см|sm|cm/.test(s)) return Math.round(n * 10);
+  return Math.round(n);
+}
+const NUMW = { "ноль":0,"один":1,"одна":1,"два":2,"две":2,"три":3,"четыре":4,"пять":5,"шесть":6,"семь":7,"восемь":8,"девять":9,"десять":10,"одиннадцать":11,"двенадцать":12,"тринадцать":13,"четырнадцать":14,"пятнадцать":15,"шестнадцать":16,"семнадцать":17,"восемнадцать":18,"девятнадцать":19,"двадцать":20,"тридцать":30,"сорок":40,"пятьдесят":50,"шестьдесят":60,"семьдесят":70,"восемьдесят":80,"девяносто":90,"сто":100,"двести":200,"триста":300,"четыреста":400,"пятьсот":500,"шестьсот":600,"семьсот":700,"восемьсот":800,"девятьсот":900,"полтора":1.5,"полторы":1.5 };
+function wordsToNum(s){
+  const m = s.match(/\d+(?:\.\d+)?/); if (m) return Number(m[0]);
+  let total = 0, cur = 0, found = false;
+  for (const w of s.split(/[\s-]+/)) {
+    if (w in NUMW) { cur += NUMW[w]; found = true; }
+    else if (/^тысяч/.test(w)) { total += (cur || 1) * 1000; cur = 0; found = true; }
+  }
+  return found ? total + cur : null;
+}
+function recompute(){
+  const refMm = parseMm($("#refMm").value);
+  est = {};
+  if (refMm && quad) {
+    const q = quadPx(), mmPx = ref === "h" ? refMm / q.h : refMm / q.w;
+    est.placeW = ref === "w" ? refMm : r10(q.w * mmPx);
+    est.placeH = ref === "h" ? refMm : r10(q.h * mmPx);
+    if (ground) est.elev = r10(Math.max(0, ground[1] - q.bottom) * mmPx);
+  }
+  for (const k of ["placeW", "placeH", "elev"]) {
+    $("#e_" + k).textContent = est[k] != null ? "≈ " + est[k] + " мм по фото" + (k === "elev" ? " (грубо)" : "") : (k === "elev" && !ground ? "Земля на фото не отмечена — впиши по рулетке" : "");
+    const inp = $("#d_" + k);
+    if (est[k] != null && !inp.dataset.touched) inp.value = est[k];
+  }
+  validate();
+}
+function validate(){
+  const need = ["placeW", "placeH", "elev"];
+  let ok = true;
+  for (const k of need) { const v = parseMm($("#d_" + k).value); const box = $("#d_" + k).parentNode; const bad = !v || v < 50 || v > 100000; box.classList.toggle("need", bad); if (bad) ok = false; }
+  $("#dimsSave").disabled = !ok;
+}
+document.querySelectorAll("[data-ref]").forEach(b => b.onclick = () => {
+  ref = b.dataset.ref; document.querySelectorAll("[data-ref]").forEach(x => x.setAttribute("aria-pressed", x === b));
+  $("#refLbl").textContent = ref === "h" ? "Высота места по рулетке" : "Ширина места по рулетке"; recompute();
+});
+$("#refMm").addEventListener("input", recompute);
+for (const k of ["placeW", "placeH", "elev", "signW", "signH"]) $("#d_" + k).addEventListener("input", e => { e.target.dataset.touched = "1"; validate(); });
+$("#voiceIn").addEventListener("change", e => applyVoice(e.target.value));
+$("#voiceIn").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); applyVoice(e.target.value); } });
+const NW = "(?:(?:" + Object.keys(NUMW).sort((a, b) => b.length - a.length).join("|") + "|тысяч[а-я]*)(?![а-я]))";
+const NUM = "((?:\\d+(?:[.,]\\d+)?|" + NW + "(?:\\s+" + NW + ")*)\\s*(?:мм|см|метр[а-я]*|м)?)";
+function applyVoice(text){
+  let s = " " + String(text).toLowerCase().replace(/ё/g, "е") + " ";
+  const put = (k, v) => { if (!v) return; const i = $("#d_" + k); i.value = v; i.dataset.touched = "1"; };
+  const take = (re, k) => { const m = s.match(re); if (m) { put(k, parseMm(m[1])); s = s.replace(m[0], " "); } };
+  take(new RegExp("(?:высот[а-я]*\\s+)?(?:от земли|до земли|yerdan)\\s*" + NUM), "elev");
+  take(new RegExp("(?:ширин[а-я]*\\s+вывеск[а-я]*|вывеск[а-я]*\\s+ширин[а-я]*)\\s*" + NUM), "signW");
+  take(new RegExp("(?:высот[а-я]*\\s+вывеск[а-я]*|вывеск[а-я]*\\s+высот[а-я]*)\\s*" + NUM), "signH");
+  const pair = s.match(new RegExp(NUM + "\\s*(?:на|x|х|×)\\s*" + NUM));   // «4200 на 900»
+  if (pair) { put("placeW", parseMm(pair[1])); put("placeH", parseMm(pair[2])); }
+  else {
+    take(new RegExp("(?:ширин[а-я]*|eni)\\s*(?:места\\s*)?" + NUM), "placeW");
+    take(new RegExp("(?:высот[а-я]*|balandlig[a-z']*|bo'yi)\\s*(?:места\\s*)?" + NUM), "placeH");
+  }
+  validate();
+}
+$("#dimsBack").onclick = () => { show("sMark"); markStep = "ground"; layoutStage(); drawMark(); setMarkText(); };
+
+/* annotated picture for the designer */
+function annotate(scale){
+  const W = Math.round(photo.w * scale), H = Math.round(photo.h * scale);
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const g = c.getContext("2d"); g.drawImage(photo.img, 0, 0, W, H);
+  if (quad) {
+    const s = quad.map(p => [p[0] * scale, p[1] * scale]);
+    g.fillStyle = "rgba(44,133,42,.25)"; g.strokeStyle = "#7fd37b"; g.lineWidth = Math.max(3, W / 300);
+    g.beginPath(); s.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath(); g.fill(); g.stroke();
+    const vals = { w: $("#d_placeW") ? parseMm($("#d_placeW").value) : null, h: $("#d_placeH") ? parseMm($("#d_placeH").value) : null };
+    const fs = Math.max(14, Math.round(W / 40)); g.font = `800 ${fs}px Montserrat, sans-serif`;
+    const label = (txt, x, y) => { const tw = g.measureText(txt).width; g.fillStyle = "rgba(26,26,24,.85)"; g.fillRect(x - tw/2 - 8, y - fs, tw + 16, fs * 1.45); g.fillStyle = "#fff"; g.textAlign = "center"; g.fillText(txt, x, y + fs * .2); };
+    if (vals.w) label(vals.w + " мм", (s[0][0] + s[1][0]) / 2, Math.min(s[0][1], s[1][1]) - fs * .8);
+    if (vals.h) label(vals.h + " мм", Math.max(s[1][0], s[2][0]) + fs * 3, (s[1][1] + s[2][1]) / 2);
+  }
+  if (ground) {
+    const y = ground[1] * scale; g.strokeStyle = "#ffd34d"; g.setLineDash([12, 8]); g.lineWidth = Math.max(2, W / 400);
+    g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); g.setLineDash([]);
+    const ev = $("#d_elev") ? parseMm($("#d_elev").value) : null;
+    if (ev && quad) { const fs = Math.max(14, Math.round(W / 40)); const x = (quad[3][0] + quad[2][0]) / 2 * scale, yb = (quad[3][1] + quad[2][1]) / 2 * scale;
+      g.strokeStyle = "#ffd34d"; g.beginPath(); g.moveTo(x, yb); g.lineTo(x, y); g.stroke();
+      const t = "от земли " + ev + " мм"; g.font = `800 ${fs}px Montserrat, sans-serif`; const tw = g.measureText(t).width;
+      g.fillStyle = "rgba(26,26,24,.85)"; g.fillRect(x + 10, (yb + y) / 2 - fs, tw + 16, fs * 1.45); g.fillStyle = "#ffd34d"; g.textAlign = "left"; g.fillText(t, x + 18, (yb + y) / 2 + fs * .2); }
+  }
+  // brand badge
+  g.fillStyle = "#2c852a"; const bh = Math.max(26, H / 22); g.fillRect(0, H - bh, W, bh);
+  g.fillStyle = "#fff"; g.font = `800 ${Math.round(bh * .5)}px Montserrat, sans-serif`; g.textAlign = "left";
+  g.fillText("ALCANA · замер №" + (order ? order.id : "") + " · " + new Date().toLocaleDateString("ru-RU"), 12, H - bh * .32);
+  return c.toDataURL("image/jpeg", .88);
+}
+
+$("#dimsSave").onclick = async () => {
+  const btn = $("#dimsSave"), err = $("#dimsErr"); btn.disabled = true; err.hidden = true;
+  btn.innerHTML = `<span class="busy">Сохраняю…</span>`;
+  const dims = {}; for (const k of ["placeW", "placeH", "elev", "signW", "signH"]) { const v = parseMm($("#d_" + k).value); if (v) dims[k] = v; }
+  const n = ([x, y]) => [Math.round(x / photo.w * 1000) / 1000, Math.round(y / photo.h * 1000) / 1000];
+  try {
+    await api("save", {
+      photo: photo.dataUrl.split(",")[1], marked: annotate(1).split(",")[1], dims,
+      mark: { quad: quad ? quad.map(n) : null, ground: ground ? n(ground) : null, ref, refMm: parseMm($("#refMm").value), estimate: est }
+    });
+    $("#doneSub").textContent = "№" + order.id + " · " + order.name;
+    $("#doneBody").innerHTML = `<img class="prev" src="${annotate(.6)}" alt="Отмеченное место"><p class="big">Готово!</p><p class="hint">Фото и размеры ушли в заказ, дизайнер их увидит. Сфоткай ещё место вблизи и рулетку с цифрами.</p>`;
+    show("sDone");
+    try { TG && TG.HapticFeedback && TG.HapticFeedback.notificationOccurred("success"); } catch {}
+  } catch (e) { err.hidden = false; err.textContent = "Не сохранилось: " + e.message + ". Проверь интернет и нажми ещё раз."; }
+  btn.textContent = "Сохранить замер"; validate();
+};
+$("#moreBtn").onclick = () => { mode = "extra"; openCamera(); };
+$("#closeBtn").onclick = () => { if (TG) TG.close(); else show("sDone"); };
+async function uploadExtra(dataUrl){
+  show("sDone"); $("#doneBody").innerHTML = `<span class="busy">Загружаю фото…</span>`;
+  try { await api("photo", { photo: dataUrl.split(",")[1] }); $("#doneBody").innerHTML = `<img class="prev" src="${dataUrl}" alt="Крупный план"><p class="big">Фото добавлено</p><p class="hint">Можно сделать ещё одно или закрыть.</p>`; }
+  catch (e) { $("#doneBody").innerHTML = `<p class="err">Не загрузилось: ${esc(e.message)}</p>`; }
+}
+
+boot();
+})();
+</script>
+</body>
+</html>
